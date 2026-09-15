@@ -119,7 +119,7 @@ export default function InsightsScreen() {
 								AI Request Details: <span className="text-zinc-300 font-normal">{errorNotice}</span>
 							</p>
 							<p className="text-xs text-zinc-400 leading-relaxed">
-								The insights are still displyed below using test data.
+								The insights are still displayed below using test data.
 							</p>
 						</div>
 					</div>
