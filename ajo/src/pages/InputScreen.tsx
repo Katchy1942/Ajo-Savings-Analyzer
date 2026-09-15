@@ -1,6 +1,8 @@
 import { useState, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+
 const ACCEPTED = '.csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv'
 
 export default function InputScreen() {
@@ -37,7 +39,7 @@ export default function InputScreen() {
     body.append('label', label)
 
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', body })
+      const res = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body })
       const data = await res.json()
 
       if (!res.ok) {
