@@ -13,6 +13,26 @@ export type FormattedTransaction = {
   type: "credit" | "debit";
 };
 
+export type AnalyzeSummary = {
+  summary: {
+    openingBalance: number;
+    closingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+  };
+  categoryBreakdown: {
+    personTransfers: number;
+    posPayments: number;
+    airtimeData: number;
+    other: number;
+  };
+  sampleTransactions: Array<{
+    date: string;
+    description: string;
+    amount: number;
+  }>;
+};
+
 type ColumnMap = {
   headerRowIndex: number;
   dateIndex: number;
@@ -70,6 +90,11 @@ function cellText(value: CellValue): string {
   return String(value).trim();
 }
 
+function rawCellText(value: CellValue): string {
+  if (value === null || value === undefined) return "";
+  return typeof value === "string" ? value : String(value);
+}
+
 function normalizeHeader(value: CellValue): string {
   return cellText(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -94,13 +119,16 @@ function findColumns(headers: string[], parts: string[]): number[] {
 function findStatementColumns(rows: Row[]): ColumnMap {
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
     const headers = rows[rowIndex].map(normalizeHeader);
-    const dateIndex = findColumn(headers, [
+    const valueDateIndex = findColumn(headers, ["valuedate"]);
+    const dateIndex =
+      valueDateIndex >= 0
+        ? valueDateIndex
+        : findColumn(headers, [
       "transactiondate",
       "transdate",
-      "valuedate",
       "postingdate",
       "date",
-    ]);
+          ]);
     const descriptionIndices = findColumns(headers, [
       "description",
       "narration",
@@ -150,11 +178,8 @@ function parseAmount(value: CellValue): number | null {
   const isParenthesized = /^\(.*\)$/.test(source);
   const hasDebitMarker = /\b(?:dr|debit|withdrawal|withdraw)\b/i.test(source);
   const hasCreditMarker = /\b(?:cr|credit|deposit|income)\b/i.test(source);
-  const numericText = source
-    .replace(/[,\s₦$€£]/g, "")
-    .replace(/[a-z]/gi, "")
-    .replace(/[()]/g, "");
-  const parsed = Number(numericText);
+  const numericText = source.replace(/,/g, "").match(/[-+]?\d+(?:\.\d+)?/)?.[0];
+  const parsed = numericText === undefined ? Number.NaN : Number(numericText);
 
   if (!Number.isFinite(parsed)) return null;
   if (hasDebitMarker || isParenthesized) return -Math.abs(parsed);
@@ -202,6 +227,112 @@ function amountFromRow(row: Row, columns: ColumnMap): number | null {
   return amount;
 }
 
+function summaryValue(
+  rows: Row[],
+  headerRowIndex: number,
+  label: string,
+  fallbackRowIndex: number,
+  fallbackColumnIndex: number,
+): number {
+  const candidateRows = [
+    rows[fallbackRowIndex],
+    ...rows.slice(0, headerRowIndex),
+  ].filter((row): row is Row => row !== undefined);
+
+  for (const row of candidateRows) {
+    const labelIndex = row.findIndex((value) => normalizeHeader(value).includes(label));
+    if (labelIndex < 0) continue;
+
+    for (const value of row.slice(labelIndex + 1)) {
+      const parsed = parseAmount(value);
+      if (parsed !== null) return Math.abs(parsed);
+    }
+  }
+
+  const fallback = parseAmount(rows[fallbackRowIndex]?.[fallbackColumnIndex]);
+  return fallback === null ? 0 : Math.abs(fallback);
+}
+
+function categoryForDescription(
+  description: string,
+): keyof AnalyzeSummary["categoryBreakdown"] {
+  const normalized = description.toLowerCase();
+
+  if (
+    /\b(?:transfer|p2p|send money|received from|bank transfer|money transfer)\b/.test(
+      normalized,
+    )
+  ) {
+    return "personTransfers";
+  }
+
+  if (/\b(?:pos|point of sale|merchant)\b/.test(normalized)) {
+    return "posPayments";
+  }
+
+  if (
+    /\b(?:airtime|data|recharge|bundle|top[\s-]?up|mtn|glo|airtel|9mobile)\b/.test(
+      normalized,
+    )
+  ) {
+    return "airtimeData";
+  }
+
+  return "other";
+}
+
+function evenlySampleTransactions(
+  transactions: FormattedTransaction[],
+): AnalyzeSummary["sampleTransactions"] {
+  const chronological = [...transactions].sort((left, right) =>
+    left.date.localeCompare(right.date),
+  );
+  const sampleSize = Math.min(15, chronological.length);
+
+  if (sampleSize === 0) return [];
+  if (sampleSize === chronological.length) {
+    return chronological.map(({ date, description, amount }) => ({
+      date,
+      description,
+      amount,
+    }));
+  }
+
+  return Array.from({ length: sampleSize }, (_, index) => {
+    const sourceIndex = Math.round((index * (chronological.length - 1)) / (sampleSize - 1));
+    const { date, description, amount } = chronological[sourceIndex];
+    return { date, description, amount };
+  });
+}
+
+export function formatOpayStatementSummary(rows: Row[]): AnalyzeSummary {
+  const columns = findStatementColumns(rows);
+  const transactions = formatOpayStatement(rows);
+  const categoryBreakdown: AnalyzeSummary["categoryBreakdown"] = {
+    personTransfers: 0,
+    posPayments: 0,
+    airtimeData: 0,
+    other: 0,
+  };
+
+  for (const transaction of transactions) {
+    if (transaction.type !== "debit") continue;
+    const category = categoryForDescription(transaction.description);
+    categoryBreakdown[category] += Math.abs(transaction.amount);
+  }
+
+  return {
+    summary: {
+      openingBalance: summaryValue(rows, columns.headerRowIndex, "openingbalance", 3, 1),
+      closingBalance: summaryValue(rows, columns.headerRowIndex, "closingbalance", 4, 1),
+      totalDebit: summaryValue(rows, columns.headerRowIndex, "totaldebit", 3, 3),
+      totalCredit: summaryValue(rows, columns.headerRowIndex, "totalcredit", 4, 3),
+    },
+    categoryBreakdown,
+    sampleTransactions: evenlySampleTransactions(transactions),
+  };
+}
+
 export function formatOpayStatement(rows: Row[]): FormattedTransaction[] {
   const columns = findStatementColumns(rows);
   const transactions: FormattedTransaction[] = [];
@@ -211,9 +342,8 @@ export function formatOpayStatement(rows: Row[]): FormattedTransaction[] {
 
     const date = formatDate(row[columns.dateIndex]);
     const description = columns.descriptionIndices
-      .map((index) => cellText(row[index]))
-      .find(Boolean)
-      ?.replace(/\s+/g, " ") ?? "";
+      .map((index) => rawCellText(row[index]))
+      .find((value) => value !== "") ?? "";
     const amount = amountFromRow(row, columns);
 
     // Footer and summary rows generally have no date or description. Requiring both
@@ -283,12 +413,17 @@ router.post("/analyze", receiveStatementUpload, (request, response) => {
   }
 
   try {
-    const transactions = formatOpayStatement(parseStatement(file));
+    const formatted = formatOpayStatementSummary(parseStatement(file));
     request.log.debug(
-      { goalAmount, months, transactionCount: transactions.length, llmApiKeyConfigured },
+      {
+        goalAmount,
+        months,
+        sampleTransactionCount: formatted.sampleTransactions.length,
+        llmApiKeyConfigured,
+      },
       "Statement parsed; LLM analysis deferred",
     );
-    response.json(transactions);
+    response.json(formatted);
   } catch (error) {
     response.status(400).json({
       error: error instanceof Error ? error.message : "Could not parse the statement.",
