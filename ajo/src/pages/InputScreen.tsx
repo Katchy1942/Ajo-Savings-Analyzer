@@ -1,242 +1,390 @@
 import { useState, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { createMockAnalysis } from '../utils/mockData'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 const ACCEPTED = '.csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv'
 
 export default function InputScreen() {
-  const navigate = useNavigate()
+	const navigate = useNavigate()
 
-  const [file, setFile]             = useState<File | null>(null)
-  const [goalAmount, setGoalAmount] = useState('')
-  const [months, setMonths]         = useState('1')
-  const [label, setLabel]           = useState('')
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState<string | null>(null)
+	const [file, setFile] = useState<File | null>(null)
+	const [goalAmount, setGoalAmount] = useState('')
+	const [months, setMonths] = useState('1')
+	const [label, setLabel] = useState('')
+	const [loading, setLoading] = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
+	const fileInputRef = useRef<HTMLInputElement>(null)
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const picked = e.target.files?.[0] ?? null
-    setFile(picked)
-    setError(null)
-  }
+	function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+		const picked = e.target.files?.[0] ?? null
+		setFile(picked)
+	}
 
-  const canSubmit = file !== null && goalAmount.trim() !== '' && !loading
+	const canSubmit = file !== null && goalAmount.trim() !== '' && !loading
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (!canSubmit) return
+	async function handleSubmit(e: FormEvent) {
+		e.preventDefault()
+		if (!canSubmit) return
 
-    setLoading(true)
-    setError(null)
+		setLoading(true)
 
-    const body = new FormData()
-    body.append('statement', file!)
-    body.append('goalAmount', goalAmount)
-    body.append('months', months)
-    body.append('label', label)
+		const parsedGoal = parseFloat(goalAmount) || 50000
+		const parsedMonths = parseInt(months, 10) || 1
+		const goalLabel = label.trim() || 'Savings Target'
 
-    try {
-      const res = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body })
-      const data = await res.json()
+		const body = new FormData()
+		body.append('statement', file!)
+		body.append('goalAmount', goalAmount)
+		body.append('months', months)
+		body.append('label', label)
 
-      if (!res.ok) {
-        throw new Error(data?.error ?? 'Something went wrong, please try again.')
-      }
+		try {
+			const res = await fetch(`${API_BASE}/api/analyze`, {
+				method: 'POST',
+				body,
+			})
 
-      navigate('/insights', { state: data })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong, please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
+			const data = await res.json()
 
-  return (
-    <div className="min-h-screen bg-white flex flex-col lg:flex-row">
+			if (!res.ok) {
+				throw new Error(data?.error ?? `Server error (${res.status})`)
+			}
 
-      {/* ── Left — hero copy ── */}
-      <div className="lg:w-1/2 bg-black text-white flex flex-col justify-center px-10 py-16 lg:px-16 lg:py-24">
-        <p className="text-xs font-semibold tracking-[0.2em] uppercase text-zinc-400 mb-6">
-          Ajo Savings Planner
-        </p>
-        <h1 className="text-4xl lg:text-5xl font-bold leading-tight tracking-tight mb-6">
-          Know exactly where<br />your money goes.
-        </h1>
-        <p className="text-zinc-400 text-base leading-relaxed max-w-sm mb-10">
-          Upload your Opay bank statement and set a savings goal. We'll analyse your spending and tell you if you can hit it — with a plan to get there.
-        </p>
+			if (!data.analysis) {
+				throw new Error('Response is missing AI analysis data')
+			}
 
-        <ul className="space-y-3">
-          {[
-            'Instant AI-powered analysis',
-            'Spending breakdown by category',
-            'Personalised savings recommendations',
-          ].map((item) => (
-            <li key={item} className="flex items-center gap-3 text-sm text-zinc-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-white shrink-0" />
-              {item}
-            </li>
-          ))}
-        </ul>
-      </div>
+			navigate('/insights', { state: data })
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : 'AI analysis failed or server is unreachable.'
+			// Fallback: navigate to insights with test data while displaying the error clearly
+			const mockData = createMockAnalysis({
+				goalAmount: parsedGoal,
+				months: parsedMonths,
+				label: goalLabel,
+				errorNotice: errorMsg,
+			})
+			navigate('/insights', { state: mockData })
+		} finally {
+			setLoading(false)
+		}
+	}
 
-      {/* ── Right — form ── */}
-      <div className="lg:w-1/2 flex items-center justify-center px-6 py-14 lg:px-16">
-        <div className="w-full max-w-md">
-          <h2 className="text-xl font-bold text-black mb-1">Analyse your statement</h2>
-          <p className="text-sm text-zinc-500 mb-8">Takes about 15–30 seconds.</p>
+	return (
+		<div
+			className="min-h-screen flex flex-col
+				lg:flex-row bg-white font-sans"
+		>
+			{/* ── Left — Apple-style Hero ── */}
+			<div
+				className="flex flex-col justify-between
+					w-full lg:w-1/2 p-8
+					lg:p-16 bg-black text-white"
+			>
+				<div>
+					<div
+						className="inline-flex items-center gap-2
+							px-3 py-1 mb-8
+							rounded-full bg-zinc-900 border
+							border-zinc-800 text-[11px] font-semibold
+							tracking-widest uppercase text-zinc-300"
+					>
+						<span
+							className="h-1.5 w-1.5 rounded-full
+								bg-emerald-400 animate-pulse"
+						/>
+						Ajo Intelligence
+					</div>
 
-          <form id="savings-form" onSubmit={handleSubmit} className="space-y-5">
+					<h1
+						className="text-4xl sm:text-5xl lg:text-6xl
+							font-bold tracking-tight leading-[1.08]
+							text-white mb-6"
+					>
+						Know exactly
+						<br />
+						where your
+						<br />
+						money goes.
+					</h1>
 
-            {/* File upload */}
-            <div className="space-y-1.5">
-              <label htmlFor="statement-input" className="block text-sm font-medium text-black">
-                Upload your Opay statement (CSV or Excel)
-              </label>
+					<p
+						className="text-base sm:text-lg text-zinc-400
+							leading-relaxed max-w-md mb-12"
+					>
+						Upload your bank statement and set a target. Our AI analyzes recurring cash flow, categorizes spending, and builds an actionable savings roadmap.
+					</p>
 
-              <button
-                id="file-pick-btn"
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2
-                  px-4 py-3 rounded-lg border-2 border-dashed border-zinc-300
-                  text-zinc-500 text-sm font-medium
-                  hover:border-black hover:text-black
-                  transition-colors cursor-pointer"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                </svg>
-                {file ? 'Change file' : 'Choose file'}
-              </button>
+					<div
+						className="space-y-4 pt-4
+							border-t border-zinc-900"
+					>
+						{[
+							'Deep transaction categorization & trend detection',
+							'Real-time cash flow & savings feasibility check',
+							'Targeted recommendations to hit your goal on time',
+						].map((item) => (
+							<div
+								key={item}
+								className="flex items-center gap-3
+									text-sm text-zinc-300"
+							>
+								<div
+									className="flex items-center justify-center
+										h-5 w-5 rounded-full
+										bg-zinc-900 border border-zinc-800
+										text-zinc-100 text-xs shrink-0"
+								>
+									✓
+								</div>
+								<span>{item}</span>
+							</div>
+						))}
+					</div>
+				</div>
 
-              <input
-                ref={fileInputRef}
-                id="statement-input"
-                type="file"
-                accept={ACCEPTED}
-                onChange={handleFileChange}
-                className="sr-only"
-              />
+				<div
+					className="mt-12 pt-8 border-t
+						border-zinc-900 flex items-center
+						justify-between text-xs text-zinc-500"
+				>
+					<span>Bank-grade privacy & client-side security</span>
+					<span>Hackathon Edition</span>
+				</div>
+			</div>
 
-              {file && (
-                <div className="flex items-center gap-2 mt-1 text-sm text-zinc-600">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                  </svg>
-                  <span className="truncate flex-1">{file.name}</span>
-                  <span className="shrink-0 inline-flex items-center gap-1
-                    px-2 py-0.5 rounded-full text-xs font-medium
-                    bg-black text-white">
-                    Ready
-                  </span>
-                </div>
-              )}
-            </div>
+			{/* ── Right — Form ── */}
+			<div
+				className="flex flex-col justify-center
+					w-full lg:w-1/2 p-8
+					sm:p-12 lg:p-16 bg-white"
+			>
+				<div
+					className="w-full max-w-md mx-auto
+						space-y-8"
+				>
+					<div>
+						<h2
+							className="text-2xl sm:text-3xl font-bold
+								tracking-tight text-black mb-2"
+						>
+							Analyze Statement
+						</h2>
+						<p
+							className="text-sm text-zinc-500
+								leading-relaxed"
+						>
+							Select your statement file and target savings parameters.
+						</p>
+					</div>
 
-            {/* Goal amount */}
-            <div className="space-y-1.5">
-              <label htmlFor="goal-amount" className="block text-sm font-medium text-black">
-                How much do you want to save? <span className="text-zinc-400">(₦)</span>
-              </label>
-              <input
-                id="goal-amount"
-                type="number"
-                min={1}
-                step="any"
-                placeholder="e.g. 50000"
-                value={goalAmount}
-                onChange={e => setGoalAmount(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300
-                  px-4 py-3 text-sm text-black placeholder-zinc-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  transition"
-              />
-            </div>
+					<form
+						id="savings-form"
+						onSubmit={handleSubmit}
+						className="space-y-5"
+					>
+						{/* File Upload Area */}
+						<div className="space-y-2">
+							<label
+								htmlFor="statement-input"
+								className="block text-xs font-semibold
+									uppercase tracking-wider text-zinc-700"
+							>
+								Bank Statement (CSV / Excel)
+							</label>
 
-            {/* Months */}
-            <div className="space-y-1.5">
-              <label htmlFor="months" className="block text-sm font-medium text-black">
-                In how many months?
-              </label>
-              <input
-                id="months"
-                type="number"
-                min={1}
-                step={1}
-                value={months}
-                onChange={e => setMonths(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300
-                  px-4 py-3 text-sm text-black placeholder-zinc-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  transition"
-              />
-            </div>
+							<button
+								id="file-pick-btn"
+								type="button"
+								onClick={() => fileInputRef.current?.click()}
+								className="w-full flex flex-col
+									items-center justify-center gap-2
+									p-6 rounded-2xl border
+									border-dashed border-zinc-300 hover:border-black
+									bg-zinc-50/50 hover:bg-zinc-50
+									transition-all cursor-pointer group"
+							>
+								<div
+									className="flex items-center justify-center
+										h-10 w-10 rounded-full
+										bg-white border border-zinc-200
+										text-zinc-800 group-hover:border-black
+										transition-colors"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										className="h-5 w-5"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke="currentColor"
+										strokeWidth={1.8}
+									>
+										<path
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+										/>
+									</svg>
+								</div>
+								<span
+									className="text-sm font-medium text-zinc-700
+										group-hover:text-black"
+								>
+									{file ? 'Change selected file' : 'Click to select statement'}
+								</span>
+								<span className="text-xs text-zinc-400">
+									Supports Opay CSV or XLSX
+								</span>
+							</button>
 
-            {/* Goal label */}
-            <div className="space-y-1.5">
-              <label htmlFor="goal-label" className="block text-sm font-medium text-black">
-                What's this for?{' '}
-                <span className="text-zinc-400 font-normal">(optional)</span>
-              </label>
-              <input
-                id="goal-label"
-                type="text"
-                placeholder="e.g. New laptop, rent deposit…"
-                value={label}
-                onChange={e => setLabel(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300
-                  px-4 py-3 text-sm text-black placeholder-zinc-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  transition"
-              />
-            </div>
+							<input
+								ref={fileInputRef}
+								id="statement-input"
+								type="file"
+								accept={ACCEPTED}
+								onChange={handleFileChange}
+								className="sr-only"
+							/>
 
-            {/* Submit */}
-            <button
-              id="analyze-btn"
-              type="submit"
-              disabled={!canSubmit}
-              className="w-full flex items-center justify-center gap-2
-                px-4 py-3 rounded-lg text-sm font-semibold
-                bg-black text-white
-                hover:bg-zinc-800 active:bg-zinc-900
-                disabled:opacity-40 disabled:cursor-not-allowed
-                transition-colors"
-            >
-              {loading ? (
-                <>
-                  <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Analysing…
-                </>
-              ) : (
-                'Analyze My Statement'
-              )}
-            </button>
+							{file && (
+								<div
+									className="flex items-center justify-between
+										p-3 rounded-xl bg-zinc-100
+										border border-zinc-200 text-xs"
+								>
+									<div
+										className="flex items-center gap-2
+											min-w-0 pr-2"
+									>
+										<span className="font-semibold text-black shrink-0">📄</span>
+										<span className="truncate font-medium text-zinc-800">
+											{file.name}
+										</span>
+									</div>
+									<span
+										className="shrink-0 px-2 py-0.5
+											rounded-md bg-black text-white
+											font-medium text-[11px]"
+									>
+										Ready
+									</span>
+								</div>
+							)}
+						</div>
 
-            {/* Loading hint */}
-            {loading && (
-              <p className="text-center text-xs text-zinc-400 pt-1">
-                This might take a moment, your statement is being analysed.
-              </p>
-            )}
-          </form>
+						{/* Goal Amount */}
+						<div className="space-y-1.5">
+							<label
+								htmlFor="goal-amount"
+								className="block text-xs font-semibold
+									uppercase tracking-wider text-zinc-700"
+							>
+								Savings Target (₦)
+							</label>
+							<input
+								id="goal-amount"
+								type="number"
+								min={1}
+								step="any"
+								placeholder="e.g. 50000"
+								value={goalAmount}
+								onChange={(e) => setGoalAmount(e.target.value)}
+								className="w-full px-4 py-3.5
+									rounded-xl border border-zinc-300
+									bg-white text-sm text-black
+									placeholder-zinc-400 focus:outline-none focus:ring-2
+									focus:ring-black focus:border-transparent transition"
+							/>
+						</div>
 
-          {/* Inline error */}
-          {error && (
-            <p id="form-error" className="mt-4 text-sm text-red-600 text-center">
-              {error}
-            </p>
-          )}
-        </div>
-      </div>
+						{/* Timeline (Months) */}
+						<div className="space-y-1.5">
+							<label
+								htmlFor="months"
+								className="block text-xs font-semibold
+									uppercase tracking-wider text-zinc-700"
+							>
+								Target Timeline (Months)
+							</label>
+							<input
+								id="months"
+								type="number"
+								min={1}
+								step={1}
+								value={months}
+								onChange={(e) => setMonths(e.target.value)}
+								className="w-full px-4 py-3.5
+									rounded-xl border border-zinc-300
+									bg-white text-sm text-black
+									placeholder-zinc-400 focus:outline-none focus:ring-2
+									focus:ring-black focus:border-transparent transition"
+							/>
+						</div>
 
-    </div>
-  )
+						{/* Goal Label */}
+						<div className="space-y-1.5">
+							<label
+								htmlFor="goal-label"
+								className="block text-xs font-semibold
+									uppercase tracking-wider text-zinc-700"
+							>
+								Goal Name <span className="text-zinc-400 font-normal">(optional)</span>
+							</label>
+							<input
+								id="goal-label"
+								type="text"
+								placeholder="e.g. Rent, Tuition, Emergency Fund"
+								value={label}
+								onChange={(e) => setLabel(e.target.value)}
+								className="w-full px-4 py-3.5
+									rounded-xl border border-zinc-300
+									bg-white text-sm text-black
+									placeholder-zinc-400 focus:outline-none focus:ring-2
+									focus:ring-black focus:border-transparent transition"
+							/>
+						</div>
+
+						{/* Submit Button */}
+						<button
+							id="analyze-btn"
+							type="submit"
+							disabled={!canSubmit}
+							className="w-full flex items-center
+								justify-center gap-2 py-4
+								px-6 rounded-xl font-semibold
+								text-sm bg-black text-white
+								hover:bg-zinc-800 active:scale-[0.99]
+								disabled:opacity-40 disabled:cursor-not-allowed
+								transition-all"
+						>
+							{loading ? (
+								<>
+									<div
+										className="h-4 w-4 rounded-full
+											border-2 border-white/25 border-t-white
+											animate-spin shrink-0"
+									/>
+									<span>Analyzing Statement…</span>
+								</>
+							) : (
+								'Analyze Statement'
+							)}
+						</button>
+
+						{/* Loading patience message */}
+						{loading && (
+							<p
+								className="text-center text-xs text-zinc-500
+									animate-pulse"
+							>
+								This might take a moment, your statement is being analyzed.
+							</p>
+						)}
+					</form>
+				</div>
+			</div>
+		</div>
+	)
 }
