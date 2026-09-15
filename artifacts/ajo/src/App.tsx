@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, useState } from 'react';
-import { Check, FileSpreadsheet, LockKeyhole, Sparkle, Upload, WalletCards } from 'lucide-react';
-import { type ReactNode } from 'react';
+import { ArrowLeft, Check, FileSpreadsheet, LockKeyhole, Sparkle, Upload, WalletCards } from 'lucide-react';
+import { createContext, type ReactNode, useContext } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -9,6 +9,39 @@ import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
 const queryClient = new QueryClient();
+
+type AnalysisResponse = {
+  summary: {
+    openingBalance: number;
+    closingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+  };
+  categoryBreakdown: {
+    personTransfers: number;
+    posPayments: number;
+    airtimeData: number;
+    other: number;
+  };
+  sampleTransactions: Array<{
+    date: string;
+    description: string;
+    amount: number;
+  }>;
+};
+
+type AnalysisContextValue = {
+  response: AnalysisResponse | null;
+  setResponse: (response: AnalysisResponse) => void;
+};
+
+const AnalysisContext = createContext<AnalysisContextValue | null>(null);
+
+function useAnalysis() {
+  const context = useContext(AnalysisContext);
+  if (!context) throw new Error('useAnalysis must be used inside AnalysisContext');
+  return context;
+}
 
 function Logo() {
   return (
@@ -77,11 +110,14 @@ function FieldLabel({ children, htmlFor, optional = false }: { children: ReactNo
 }
 
 function Home() {
+  const [, navigate] = useLocation();
+  const { setResponse } = useAnalysis();
   const [file, setFile] = useState<File | null>(null);
   const [goal, setGoal] = useState('');
   const [months, setMonths] = useState('1');
   const [purpose, setPurpose] = useState('');
   const [isReading, setIsReading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0] ?? null;
@@ -93,10 +129,40 @@ function Home() {
     setFile(validExtension ? nextFile : null);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!file || !goal || isReading) return;
+
     setIsReading(true);
+    setErrorMessage('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('goalAmount', goal);
+      formData.append('months', months);
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData,
+      });
+      const responseBody = (await response.json()) as AnalysisResponse | { error?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          'error' in responseBody && responseBody.error
+            ? responseBody.error
+            : 'We could not read that statement.',
+        );
+      }
+
+      setResponse(responseBody as AnalysisResponse);
+      navigate('/insights');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'We could not read that statement.');
+    } finally {
+      setIsReading(false);
+    }
   };
 
   const canSubmit = Boolean(file && goal);
@@ -222,11 +288,16 @@ function Home() {
                     </>
                   ) : (
                     <>
-                      Analyze My Statement
+                      <span>Analyze My Statement</span>
                       <span className="text-[1.05rem] leading-none" aria-hidden="true">→</span>
                     </>
                   )}
                 </button>
+                {errorMessage && (
+                  <p className="mt-3 text-center text-[0.75rem] font-medium text-[#a4574c]" role="alert">
+                    {errorMessage}
+                  </p>
+                )}
                 <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[0.7rem] text-[#87988d]" data-testid="text-privacy-note">
                   <LockKeyhole size={12} strokeWidth={1.8} aria-hidden="true" />
                   Your statement stays on this device.
@@ -245,11 +316,68 @@ function Home() {
   );
 }
 
+function Insights() {
+  const [, navigate] = useLocation();
+  const { response } = useAnalysis();
+
+  return (
+    <main className="app-shell paper-grain min-h-[100dvh]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[1060px] flex-col px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
+        <header className="float-in flex items-center justify-between">
+          <Logo />
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 text-[0.76rem] font-semibold text-[#4d7763] transition-colors hover:text-[#204d46] focus:outline-none focus:ring-4 focus:ring-[#9bc9a7]/35"
+          >
+            <ArrowLeft size={15} strokeWidth={1.8} aria-hidden="true" />
+            Back to upload
+          </button>
+        </header>
+
+        <section className="float-in-delay flex flex-1 flex-col justify-center py-14" aria-labelledby="insights-heading">
+          <div className="mb-8 max-w-[650px]">
+            <div className="mb-4 flex items-center gap-3 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-[#6b9479]">
+              <span className="h-px w-8 bg-[#89b698]" aria-hidden="true" />
+              Analyzer response
+            </div>
+            <h1 id="insights-heading" className="display-font text-[clamp(2.8rem,6vw,5.4rem)] leading-[0.96] tracking-[-0.06em] text-[#204d46]">
+              Your statement, <span className="text-[#4d8765]">made clear.</span>
+            </h1>
+            <p className="mt-6 max-w-[520px] text-[1rem] leading-7 text-[#61776d] sm:text-[1.07rem]">
+              This is the response returned by the statement analyzer.
+            </p>
+          </div>
+
+          {response ? (
+            <pre
+              className="w-full overflow-x-auto rounded-[24px] border border-[#dce4d9] bg-[rgba(253,252,246,0.88)] p-5 text-[0.78rem] leading-6 text-[#315a50] shadow-[0_24px_70px_-30px_rgba(32,77,70,0.35)] sm:p-8 sm:text-[0.86rem]"
+              data-testid="analysis-response"
+            >
+              {JSON.stringify(response, null, 2)}
+            </pre>
+          ) : (
+            <div className="rounded-[24px] border border-[#dce4d9] bg-[rgba(253,252,246,0.88)] p-6 text-[0.9rem] text-[#61776d] shadow-[0_24px_70px_-30px_rgba(32,77,70,0.35)]">
+              No analysis response is available yet. Upload a statement to begin.
+            </div>
+          )}
+        </section>
+
+        <footer className="float-in flex items-center justify-between border-t border-[#d7dfd5] pt-5 text-[0.68rem] font-medium text-[#8a9a8f]">
+          <span>Small steps count.</span>
+          <span>Made for real life</span>
+        </footer>
+      </div>
+    </main>
+  );
+}
+
 function Router() {
   return (
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/insights" component={Insights} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
@@ -262,15 +390,19 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  const [response, setResponse] = useState<AnalysisResponse | null>(null);
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <AnalysisContext.Provider value={{ response, setResponse }}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </AnalysisContext.Provider>
   );
 }
 
