@@ -17,11 +17,15 @@ function parseMoney(raw) {
 
 /**
  * Categorize a transaction description into one of four buckets.
+ *
+ * Order matters — check "pos transfer" BEFORE "transfer to" so that
+ * descriptions like "Transfer to POS Transfer-NAME | MONIE POINT" land
+ * in posPayments, not personTransfers.
  */
 function categorize(description) {
   const lower = description.toLowerCase();
+  if (lower.includes("pos transfer")) return "posPayments";
   if (lower.includes("transfer to")) return "personTransfers";
-  if (lower.includes("pos")) return "posPayments";
   if (lower.includes("airtime") || lower.includes("data")) return "airtimeData";
   return "other";
 }
@@ -80,11 +84,19 @@ function parseOpayStatement(buffer) {
   const row4 = rows[3] || [];
   const row5 = rows[4] || [];
 
+  // Diagnostic: log raw cell values so we can confirm we're reading the right positions
+  console.log("[parser] row4 (Opening Balance / Total Debit):", {
+    colA: row4[0], colB: row4[1], colC: row4[2], colD: row4[3], colF: row4[5],
+  });
+  console.log("[parser] row5 (Closing Balance / Total Credit):", {
+    colA: row5[0], colB: row5[1], colC: row5[2], colD: row5[3], colF: row5[5],
+  });
+
   const summary = {
-    openingBalance: parseMoney(row4[1]), // col B
-    closingBalance: parseMoney(row5[1]), // col B
-    totalDebit:     parseMoney(row4[3]), // col D
-    totalCredit:    parseMoney(row5[3]), // col D
+    openingBalance: parseMoney(row4[1]), // col B — Opening Balance
+    closingBalance: parseMoney(row5[1]), // col B — Closing Balance
+    totalDebit:     parseMoney(row4[3]), // col D — Total Debit  (NOT col F which is Debit Count)
+    totalCredit:    parseMoney(row5[3]), // col D — Total Credit (NOT col F which is Credit Count)
   };
 
   // ── Transactions (row 8 onward = index 7+) ───────────────────────────────
@@ -115,9 +127,12 @@ function parseOpayStatement(buffer) {
 
     transactions.push({ date, description, amount, type });
 
-    // Accumulate category breakdown (absolute amounts)
-    const cat = categorize(description);
-    categoryBreakdown[cat] += Math.abs(amount);
+    // Only debit transactions (money going out) count toward spend categories.
+    // Credit/incoming transactions are excluded so totals ≈ totalDebit, not inflated.
+    if (type === "debit") {
+      const cat = categorize(description);
+      categoryBreakdown[cat] += Math.abs(amount);
+    }
   }
 
   // Round breakdown values to 2 dp

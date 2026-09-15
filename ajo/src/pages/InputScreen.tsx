@@ -214,6 +214,13 @@ export default function InputScreen() {
               'Analyze My Statement'
             )}
           </button>
+
+          {/* Loading hint */}
+          {loading && (
+            <p className="text-center text-xs text-slate-400 pt-1">
+              This might take a moment — the AI is reading your statement ✨
+            </p>
+          )}
         </form>
 
         {/* Inline error */}
