@@ -1,1 +1,0 @@
-- [Opay spreadsheet row offsets](opay-spreadsheet-row-offsets.md) — XLSX row-array parsing can drop leading blank rows; resolve fixed summary fields by labels before the transaction header.
