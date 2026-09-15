@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Ajo"
+description = "A simple savings planning app that helps users upload an Opay statement and set a savings goal for analysis."
+version = "1.0.0"
+id = "artifacts/ajo"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24876
+
+[services.development]
+run = "pnpm --filter @workspace/ajo run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ajo", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ajo/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24876"
+BASE_PATH = "/"
